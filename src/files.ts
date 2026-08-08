@@ -5,7 +5,12 @@
  * cwd 编码：`C:\Users\admin\Desktop\dshext` → `--C-Users-admin-Desktop-dshext--`
  * （`\`→`-`、盘符 `C:`→`C-`、外层包裹 `--`）。
  *
- * 安全：file 动作的 path 解析结果必须落在 sessions 根内（防止任意文件读取）。
+ * 安全（审查 SH-01/SH-02 修复）：
+ * - session id 只允许严格目录名（`[A-Za-z0-9._-]+`），显式拒绝 `/`、`\`、`..`、
+ *   驱动器前缀、空白与控制字符——`..` 路径穿越不可能；
+ * - 围栏判定使用 **fs.realpath 真实路径**（非词法 resolve），符号链接/junction
+ *   指向根外时被拒绝；枚举用 lstat 并默认拒绝 symlink；
+ * - 解析结果在返回前再次做真实路径 containment 校验。
  */
 
 import { promises as fs } from 'node:fs'
@@ -38,9 +43,33 @@ export interface EnumerateResult {
   warnings: string[]
 }
 
+/** 严格会话 id：单个目录名，无路径分隔符/点相对/驱动器/空白控制字符。 */
+export const SESSION_ID_RE = /^[A-Za-z0-9._-]+$/
+
+/** 相对路径 id 中的穿越片段（在 join 前拒绝）。 */
+const TRAVERSAL_RE = /(^|[\\/])\.\.([\\/]|$)|[\\/]|^[a-zA-Z]:/
+
+/**
+ * 真实路径 containment：root 与 target 均 realpath 后判定。
+ * 符号链接/junction 指向根外 → false（词法 resolve 无法发现）；
+ * target 不存在（realpath 失败）→ false。
+ */
+export async function isWithin(root: string, target: string): Promise<boolean> {
+  let rootReal: string
+  let targetReal: string
+  try {
+    ;[rootReal, targetReal] = await Promise.all([fs.realpath(root), fs.realpath(target)])
+  } catch {
+    return false
+  }
+  if (targetReal === rootReal) return true
+  return targetReal.startsWith(rootReal + sep)
+}
+
 /**
  * 递归枚举 sessions 根下的会话文件与 stray 文件。
  * 只读：绝不修改/删除任何文件。
+ * 安全：lstat 判定，符号链接条目一律拒绝（不跟随）。
  */
 export async function enumerateSessions(root: string): Promise<EnumerateResult> {
   const files: SessionFile[] = []
@@ -56,22 +85,28 @@ export async function enumerateSessions(root: string): Promise<EnumerateResult> 
     }
     for (const entry of entries) {
       const full = join(dir, entry.name)
+      let stat
       try {
-        const stat = await fs.stat(full)
-        if (entry.isDirectory()) {
-          if (depth < 2) await walk(full, depth + 1)
-          continue
-        }
-        if (entry.name === 'session.jsonl.zstd') {
-          files.push({ id: dir.split(sep).pop() ?? entry.name, path: full, kind: 'zstd', bytes: stat.size, updatedAt: stat.mtimeMs })
-        } else if (entry.name.endsWith('.jsonl')) {
-          files.push({ id: entry.name, path: full, kind: 'jsonl', bytes: stat.size, updatedAt: stat.mtimeMs })
-        } else if (entry.name.endsWith('.tmp') || entry.name.endsWith('.tmp.zstd')) {
-          files.push({ id: entry.name, path: full, kind: 'stray', bytes: stat.size, updatedAt: stat.mtimeMs })
-        }
+        stat = await fs.lstat(full)
       } catch {
-        // 单个文件 stat 失败：跳过（权限等）
         warnings.push(`cannot stat ${full}`)
+        continue
+      }
+      if (stat.isSymbolicLink()) {
+        warnings.push(`skipping symbolic link: ${full}`)
+        continue
+      }
+      if (stat.isDirectory()) {
+        if (depth < 2) await walk(full, depth + 1)
+        continue
+      }
+      if (!stat.isFile()) continue
+      if (entry.name === 'session.jsonl.zstd') {
+        files.push({ id: dir.split(sep).pop() ?? entry.name, path: full, kind: 'zstd', bytes: stat.size, updatedAt: stat.mtimeMs })
+      } else if (entry.name.endsWith('.jsonl')) {
+        files.push({ id: entry.name, path: full, kind: 'jsonl', bytes: stat.size, updatedAt: stat.mtimeMs })
+      } else if (entry.name.endsWith('.tmp') || entry.name.endsWith('.tmp.zstd')) {
+        files.push({ id: entry.name, path: full, kind: 'stray', bytes: stat.size, updatedAt: stat.mtimeMs })
       }
     }
   }
@@ -85,57 +120,66 @@ export async function enumerateSessions(root: string): Promise<EnumerateResult> 
   return { files, warnings }
 }
 
-/** 路径是否位于 root（真实路径比较，防符号链接逃逸）。 */
-export async function isWithin(root: string, target: string): Promise<boolean> {
-  const rootReal = resolve(root)
-  const targetReal = resolve(target)
-  if (targetReal === rootReal) return true
-  return targetReal.startsWith(rootReal + sep)
-}
-
 /**
- * file 动作的 path 解析：接受绝对文件路径（必须在 root 内）或会话 id。
- * 返回目标文件路径；不存在或越界抛 session_health: 错误。
+ * file 动作的 path 解析：接受绝对文件路径（真实路径必须在 root 内）或严格会话 id。
+ * 返回目标文件路径；不存在/越界/含穿越抛 session_health: 错误。
  */
 export async function resolveSessionPath(root: string, pathOrId: string): Promise<string> {
   if (pathOrId === '') throw new Error('session_health: path must not be empty')
 
-  // 绝对路径（Windows 盘符或 / 开头）
+  // 绝对路径分支（Windows 盘符或 / 开头）：真实路径 containment
   if (/^[a-zA-Z]:[\\/]/.test(pathOrId) || pathOrId.startsWith('/')) {
-    if (!(await isWithin(root, pathOrId))) {
-      throw new Error(`session_health: path is outside the sessions root: ${pathOrId}`)
-    }
-    // 目录 → 找 session.jsonl.zstd；文件 → 直接用
     let stat
     try {
-      stat = await fs.stat(pathOrId)
+      stat = await fs.lstat(pathOrId)
     } catch {
       throw new Error(`session_health: path not found: ${pathOrId}`)
+    }
+    if (stat.isSymbolicLink()) {
+      throw new Error(`session_health: symbolic links are not allowed: ${pathOrId}`)
+    }
+    if (!(await isWithin(root, pathOrId))) {
+      throw new Error(`session_health: path is outside the sessions root: ${pathOrId}`)
     }
     if (stat.isDirectory()) {
       const inner = join(pathOrId, 'session.jsonl.zstd')
       try {
         await fs.access(inner)
-        return inner
       } catch {
         throw new Error(`session_health: no session.jsonl.zstd inside ${pathOrId}`)
       }
+      if (!(await isWithin(root, inner))) {
+        throw new Error(`session_health: path is outside the sessions root: ${pathOrId}`)
+      }
+      return inner
     }
     return pathOrId
   }
 
-  // 会话 id：在 root 下两级查找 <cwd 目录>/<id>/session.jsonl.zstd
+  // 会话 id 分支：严格目录名（防 ../ 穿越、防绝对路径混入、防 . / .. 单点名）
+  if (!SESSION_ID_RE.test(pathOrId) || TRAVERSAL_RE.test(pathOrId) || /^\.+$/.test(pathOrId)) {
+    throw new Error(`session_health: invalid session id "${pathOrId}" (must be a plain directory name)`)
+  }
+
+  // 两级查找 <cwd 目录>/<id>/session.jsonl.zstd 或 <id>/session.jsonl.zstd
   const candidates: string[] = []
   const dirs = await fs.readdir(root).catch(() => [] as string[])
   for (const d of dirs) {
+    if (!SESSION_ID_RE.test(d)) continue
     candidates.push(join(root, d, pathOrId, 'session.jsonl.zstd'))
   }
   candidates.push(join(root, pathOrId, 'session.jsonl.zstd'))
   for (const c of candidates) {
     try {
       await fs.access(c)
-      return c
-    } catch { /* 继续 */ }
+    } catch {
+      continue
+    }
+    // 最终文件再次真实路径 containment（防根内 symlink 指向根外）
+    if (!(await isWithin(root, c))) {
+      throw new Error(`session_health: session resolves outside the sessions root: ${pathOrId}`)
+    }
+    return c
   }
   throw new Error(`session_health: session not found: ${pathOrId}`)
 }

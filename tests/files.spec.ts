@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, symlinkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { enumerateSessions, resolveSessionPath, isWithin, resolveDshHome } from '../src/files.ts'
@@ -64,14 +64,83 @@ describe('resolveSessionPath', () => {
   it('rejects an empty path', async () => {
     await expect(resolveSessionPath(makeRoot(), '')).rejects.toThrow('session_health: path must not be empty')
   })
+
+  // ── SH-01：路径穿越 ──
+
+  it('rejects ../ traversal in session ids (SH-01)', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'sh-traversal-'))
+    const root = join(base, 'sessions')
+    mkdirSync(root)
+    mkdirSync(join(base, 'outside'), { recursive: true })
+    writeFileSync(join(base, 'outside', 'session.jsonl.zstd'), 'secret')
+    await expect(resolveSessionPath(root, '../outside')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, '../../outside')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, '..\\outside')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, 'a/../../outside')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, '..')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, '.')).rejects.toThrow(/invalid session id/)
+    await expect(resolveSessionPath(root, '\\\\server\\share\\x')).rejects.toThrow(/invalid session id/)
+    // 绝对路径走绝对分支（同样被围栏拒绝）
+    await expect(resolveSessionPath(root, 'C:/Windows/win.ini')).rejects.toThrow(/outside the sessions root/)
+  })
+
+  // ── SH-02：符号链接逃逸 ──
+
+  it('rejects a session symlink pointing outside the root (SH-02)', async () => {
+    const root = makeRoot()
+    const secret = join(tmpdir(), `sh-secret-${Date.now()}`)
+    writeFileSync(secret, 'top secret')
+    const linkDir = join(root, '--C-Users-admin-Desktop-test--', 'session-link')
+    mkdirSync(linkDir, { recursive: true })
+    try {
+      symlinkSync(secret, join(linkDir, 'session.jsonl.zstd'))
+    } catch {
+      // 环境不支持 symlink 时跳过（Windows 无权限场景）
+      return
+    }
+    await expect(resolveSessionPath(root, join(linkDir, 'session.jsonl.zstd')))
+      .rejects.toThrow(/outside the sessions root|symbolic links/)
+  })
+
+  it('skips symbolic links during enumeration (SH-02)', async () => {
+    const root = makeRoot()
+    const secret = join(tmpdir(), `sh-secret2-${Date.now()}`)
+    writeFileSync(secret, 'x')
+    try {
+      symlinkSync(secret, join(root, '--C-Users-admin-Desktop-test--', 'session-abc', 'link.tmp'))
+    } catch {
+      return
+    }
+    const { files } = await enumerateSessions(root)
+    expect(files.some(f => f.id === 'link.tmp')).toBe(false)
+  })
+
+  // ── SH-06：只读保证 ──
+
+  it('does not modify any file during enumeration (read-only, SH-06)', async () => {
+    const root = makeRoot()
+    const files = await enumerateSessions(root)
+    const before = new Map<string, Buffer>()
+    for (const f of files.files) before.set(f.path, readFileSync(f.path))
+    // 再次枚举 + 全部重读
+    const files2 = await enumerateSessions(root)
+    for (const f of files2.files) {
+      const b = before.get(f.path)
+      if (b) expect(readFileSync(f.path).equals(b)).toBe(true)
+    }
+  })
 })
 
 describe('isWithin', () => {
   it('handles exact, nested and escaping paths', async () => {
     const root = mkdtempSync(join(tmpdir(), 'sh-within-'))
     expect(await isWithin(root, root)).toBe(true)
-    expect(await isWithin(root, join(root, 'a', 'b'))).toBe(true)
+    const nested = join(root, 'a', 'b')
+    mkdirSync(nested, { recursive: true })
+    expect(await isWithin(root, nested)).toBe(true)
     expect(await isWithin(root, join(root, '..', 'x'))).toBe(false)
+    // 不存在的 target → false（realpath 失败）
+    expect(await isWithin(root, join(root, 'no-such-dir'))).toBe(false)
   })
 })
 

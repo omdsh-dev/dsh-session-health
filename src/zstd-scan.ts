@@ -13,7 +13,7 @@ export interface FrameScanResult {
   offsets: Array<[number, number]>
   /** 尾部不完整数据起始偏移（torn 检测；无则 undefined）。 */
   tornStart: number | undefined
-  error: 'not-zstd' | 'reserved-header' | 'reserved-block' | 'truncated' | undefined
+  error: 'not-zstd' | 'invalid-magic' | 'reserved-header' | 'reserved-block' | 'truncated' | undefined
 }
 
 const ZSTD_MAGIC = 0xfd2fb528
@@ -21,6 +21,8 @@ const ZSTD_MAGIC = 0xfd2fb528
 /**
  * 扫描一个文件的所有 zstd 帧边界；不解码帧内容。
  * 空输入（0 字节）返回 error: 'not-zstd'（调用方按 empty 归类）。
+ * 审查 SH-03 修复：**每一帧开头都校验 magic**——后续帧坏 magic 报
+ * 'invalid-magic'（带损坏偏移 tornStart），不再把垃圾误计为完整帧。
  */
 export function scanZstdFrames(buf: Uint8Array, maxFrames = Number.POSITIVE_INFINITY): FrameScanResult {
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
@@ -40,7 +42,12 @@ export function scanZstdFrames(buf: Uint8Array, maxFrames = Number.POSITIVE_INFI
 
   while (offset < len) {
     const start = offset
-    // magic (4) + frame header descriptor (1)
+    // 每帧开头校验 magic（SH-03）
+    if (len - offset < 4) return tornAt(start)
+    if (dv.getUint32(offset, true) !== ZSTD_MAGIC) {
+      return { frames: offsets.length, offsets: [...offsets], tornStart: start, error: 'invalid-magic' }
+    }
+    // frame header descriptor (1 byte)
     if (len - offset < 5) return tornAt(start)
     const descriptor = dv.getUint8(offset + 4)
     // 保留位（bits 3-4）必须为 0

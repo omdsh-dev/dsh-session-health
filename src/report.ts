@@ -4,10 +4,11 @@
  */
 
 export type IssueCode =
-  | 'missing' | 'not-zstd' | 'empty' | 'torn'
+  | 'missing' | 'not-zstd' | 'invalid-magic' | 'empty' | 'torn'
   | 'reserved-header' | 'reserved-block'
   | 'bad-header' | 'empty-session' | 'oversized-single-frame'
   | 'interrupted' | 'stray-file'
+  | 'deep-corrupt' | 'deep-read-error' | 'deep-skipped-large'
 
 /** 单文件诊断。 */
 export interface FileDiagnosis {
@@ -32,12 +33,13 @@ export interface HealthReport {
   suggestions: string[]
 }
 
-const ERROR_CODES: IssueCode[] = ['missing', 'not-zstd', 'empty', 'torn', 'reserved-header', 'reserved-block', 'bad-header']
-const SUSPICIOUS_CODES: IssueCode[] = ['empty-session', 'oversized-single-frame', 'interrupted', 'stray-file']
+const ERROR_CODES: IssueCode[] = ['missing', 'not-zstd', 'invalid-magic', 'empty', 'torn', 'reserved-header', 'reserved-block', 'bad-header', 'deep-corrupt', 'deep-read-error']
+const SUSPICIOUS_CODES: IssueCode[] = ['empty-session', 'oversized-single-frame', 'interrupted', 'stray-file', 'deep-skipped-large']
 
 const SUGGESTION_TEMPLATES: Record<IssueCode, (n: number) => string> = {
   missing: n => `${n} 个会话文件缺失（记录存在但文件不在）`,
   'not-zstd': n => `${n} 个文件不是 zstd 格式（可能是明文 .jsonl 或损坏）`,
+  'invalid-magic': n => `${n} 个文件在帧边界处 magic 非法（中间帧损坏/被拼接垃圾数据）`,
   empty: n => `${n} 个文件为空（0 字节）`,
   torn: n => `${n} 个文件尾部不完整（torn write，可能写入中断）`,
   'reserved-header': n => `${n} 个文件帧头保留位非法（结构损坏）`,
@@ -47,6 +49,9 @@ const SUGGESTION_TEMPLATES: Record<IssueCode, (n: number) => string> = {
   'oversized-single-frame': n => `${n} 个会话单帧超大（>1MB，正常多帧写入不会这样）`,
   interrupted: n => `${n} 个会话疑似中断（有 turn/start 无 turn/end，进程被杀/崩溃），可配合 dsh-session-repair 处理`,
   'stray-file': n => `${n} 个 stray 文件（*.tmp / 非标准命名）可清理`,
+  'deep-corrupt': n => `${n} 个会话深度解码失败（损坏或无法解析的事件数据）`,
+  'deep-read-error': n => `${n} 个会话深度分析读取失败`,
+  'deep-skipped-large': n => `${n} 个会话因超过深度分析大小上限被跳过（仅帧级诊断）`,
 }
 
 /** 统计 issue 计数（error 与 suspicious 分开）。 */

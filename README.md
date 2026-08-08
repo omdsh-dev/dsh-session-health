@@ -12,8 +12,8 @@ DSH 会话健康检查插件 —— 对 `$DSH_HOME/sessions` 下的**多帧 zstd
 
 ## 安全模型
 
-- **只读保证**：绝不修改/删除任何文件（测试覆盖"扫描后文件字节数不变"）
-- **路径围栏**：`file` 动作的路径必须解析在 sessions 根内（真实路径比较，防符号链接逃逸/任意文件读取）
+- **只读保证**：绝不修改/删除任何文件（测试覆盖"扫描后文件字节数不变"，见 files.spec SH-06 用例）
+- **路径围栏**：session id 严格目录名白名单（防 `../` 穿越）；绝对路径与最终文件均做 `fs.realpath` 真实路径 containment（防符号链接/junction 逃逸）；枚举用 lstat 拒绝 symlink
 - **零业务依赖**：zstd 帧扫描器为独立实现（DataView 读字节，RFC 8878 结构，与官方 `scanZstdFrames` 差分一致）
 - **深度分析可选**：`deep: true` 时动态 import 官方解码器；解析失败明确降级 `deep: "unavailable"`，绝不静默
 - 输入范围固定（sessions 目录），无网络、无执行面
@@ -71,7 +71,7 @@ node <monorepo>/node_modules/vitest/vitest.mjs run tests
 ```
 
 - `zstd-scan.spec.ts`：官方压缩器生成帧的边界/多帧/not-zstd/截断/保留位 + **真实会话差分**（大/中/小文件与官方 `scanZstdFrames` 逐帧一致；只读本机会话，不入库）
-- `files.spec.ts`：两级目录枚举、stray/jsonl 识别、路径围栏（越界拒绝）、会话 id 解析
+- `files.spec.ts`：两级目录枚举、stray/jsonl 识别、路径围栏（穿越/符号链接/越界拒绝）、会话 id 解析、只读保证
 - `report.spec.ts`：错误/可疑计数分桶、suggestions 模板、空结果、deep 降级标注
 - `register.spec.ts`：注册契约（AUDIT-CROSS-02 风格）
 

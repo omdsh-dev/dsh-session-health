@@ -79,6 +79,37 @@ describe('scanZstdFrames: 帧边界', () => {
     expect(r.frames).toBe(2)
     expect(r.error).toBeUndefined()
   })
+
+  // ── SH-03：每一帧校验 magic ──
+
+  it('reports invalid-magic when a later frame starts with garbage (SH-03)', async () => {
+    const good = await compressZstdFrame('hello')
+    // 合法形状的垃圾帧：坏 magic（de ad be ef）但 descriptor/block 结构可解析
+    const garbage = Buffer.concat([good, Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x20, 0x00, 0x05, 0x00, 0x00])])
+    const r = scanZstdFrames(garbage)
+    expect(r.error).toBe('invalid-magic')
+    expect(r.frames).toBe(1) // 只有首帧被统计
+    expect(r.tornStart).toBe(18) // 垃圾帧起点
+  })
+
+  it('reports invalid-magic for a bad middle frame (SH-03)', async () => {
+    const a = await compressZstdFrame('a')
+    const b = await compressZstdFrame('b')
+    const c = await compressZstdFrame('c')
+    const bad = Buffer.concat([a, b, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x20, 0x00, 0x05, 0x00, 0x00]), c])
+    const r = scanZstdFrames(bad)
+    expect(r.error).toBe('invalid-magic')
+    expect(r.frames).toBe(2)
+    expect(r.tornStart).toBe(a.length + b.length)
+  })
+
+  it('still matches the official scanner on clean multi-frame input (regression)', async () => {
+    const buf = await multiFrame(5, 'clean')
+    const mine = scanZstdFrames(buf)
+    const official = officialScan(buf)
+    expect(mine.frames).toBe(official.frames.length)
+    expect(mine.error).toBeUndefined()
+  })
 })
 
 describe('scanZstdFrames: 真实会话差分（隐私安全：只读本机 ~/.dsh/sessions，不入库）', () => {

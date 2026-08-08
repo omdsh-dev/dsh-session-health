@@ -73,16 +73,31 @@ export async function diagnoseFile(f: SessionFile, now = Date.now()): Promise<Fi
   return base
 }
 
-/** 对诊断结果附加 deep 分析（失败则返回 { unavailable: true }）。 */
+/** 对诊断结果附加 deep 分析（错误分类见 DeepResult；映射为对应 issue 码）。 */
 async function attachDeep(
   d: FileDiagnosis,
-): Promise<FileDiagnosis & { deepInfo?: DeepResult | { unavailable: true } }> {
+): Promise<FileDiagnosis & { deepInfo?: DeepResult }> {
   const deep = await deepAnalyze(d.path)
-  if (!('unavailable' in deep)) {
+  if (deep.status === 'ok') {
     if (!deep.headerValid) d.issues.push('bad-header')
     if (deep.interruptedTurns > 0) d.issues.push('interrupted')
+  } else if (deep.status === 'decode-error') {
+    d.issues.push('deep-corrupt')
+  } else if (deep.status === 'missing') {
+    d.issues.push('missing')
+  } else if (deep.status === 'read-error') {
+    d.issues.push('deep-read-error')
+  } else if (deep.status === 'too-large') {
+    d.issues.push('deep-skipped-large')
   }
+  // decoder-unavailable：不产生文件级 issue，由报告级 deep 状态标注
   return { ...d, deepInfo: deep }
+}
+
+/** 汇总 deep 状态：任一文件 decoder-unavailable → 'unavailable'。 */
+function deepStatusOf(detail: Array<FileDiagnosis & { deepInfo?: DeepResult }>): boolean | 'unavailable' {
+  if (detail.length === 0) return true
+  return detail.some(d => d.deepInfo?.status === 'decoder-unavailable') ? 'unavailable' : true
 }
 
 async function runAction(args: SessionHealthArgs): Promise<string> {
@@ -93,7 +108,7 @@ async function runAction(args: SessionHealthArgs): Promise<string> {
 
   if (args.action === 'scan') {
     const { files, warnings } = await enumerateSessions(root)
-    const detail: Array<FileDiagnosis & { deepInfo?: DeepResult | { unavailable: true } }> = []
+    const detail: Array<FileDiagnosis & { deepInfo?: DeepResult }> = []
     for (const f of files) {
       const d = await diagnoseFile(f)
       if (deepRequested) {
@@ -102,9 +117,7 @@ async function runAction(args: SessionHealthArgs): Promise<string> {
         detail.push(d)
       }
     }
-    const deepStatus: boolean | 'unavailable' = deepRequested
-      ? (detail.some(d => d.deepInfo && 'unavailable' in d.deepInfo) ? 'unavailable' : true)
-      : false
+    const deepStatus = deepRequested ? deepStatusOf(detail) : false
     const report = buildReport(root, detail, deepStatus)
     // scan 默认 detail 只列异常文件；detail=false 时全量省略
     const shown = detailRequested
@@ -132,11 +145,11 @@ async function runAction(args: SessionHealthArgs): Promise<string> {
         : 'stray'
     const f: SessionFile = { id: target.split(/[\\/]/).pop() ?? args.path, path: target, kind, bytes: stat.size, updatedAt: stat.mtimeMs }
     const d = await diagnoseFile(f)
-    const withDeep: FileDiagnosis & { deepInfo?: DeepResult | { unavailable: true } } =
+    const withDeep: FileDiagnosis & { deepInfo?: DeepResult } =
       deepRequested ? await attachDeep(d) : d
     const report = buildReport(
       root, [withDeep],
-      deepRequested ? (withDeep.deepInfo && 'unavailable' in withDeep.deepInfo ? 'unavailable' : true) : false,
+      deepRequested ? deepStatusOf([withDeep]) : false,
     )
     if (args.action === 'stats' || !detailRequested) {
       report.detail = []
