@@ -1,0 +1,36 @@
+{
+  "name": "@deepseek-ai/dsh-session-health",
+  "description": "DSH session health checker: frame-level diagnostics over multi-frame zstd session logs (torn/corrupt/empty detection), zero-dependency read-only scanner",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "test": "vitest run tests"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "*",
+    "cordis": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ]
+}
