@@ -11,7 +11,7 @@
  * sessions 根内（防任意文件读取）；zero 业务依赖（帧扫描零依赖实现）；
  * deep 模式动态 import 官方解码器，失败明确降级 deep: unavailable。
  */
-import type { Context } from 'cordis';
+import type { Context } from '@deepseek-ai/cordis';
 import { type SessionFile } from './files.ts';
 import { type FileDiagnosis } from './report.ts';
 export declare const name = "@deepseek-ai/dsh-session-health";

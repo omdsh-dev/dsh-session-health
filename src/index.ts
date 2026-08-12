@@ -12,7 +12,7 @@
  * deep 模式动态 import 官方解码器，失败明确降级 deep: unavailable。
  */
 
-import type { Context } from 'cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { promises as fs } from 'node:fs'
 import { readFile } from 'node:fs/promises'

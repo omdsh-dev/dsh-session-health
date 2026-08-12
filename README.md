@@ -56,6 +56,18 @@ session_health { action: "file", path: "session-abc123", deep: true }
   → 单文件报告（含事件分布与中断检测）
 ```
 
+## npm rc.1 兼容（已验证）
+
+本插件已迁移到 npm rc.1 依赖线，并在 `@deepseek-ai/dsh@0.0.1-rc.1` 的隔离 consumer 中完成全链路验证：
+
+- **类型/运行时**：`@deepseek-ai/cordis@^4.0.1-rc.1` + `@deepseek-ai/dsh-tools@^0.0.1-rc.1` + `@deepseek-ai/dsh-invariants@^0.0.1-rc.1`（peer）；不再依赖 unscoped `cordis`
+- **独立构建**：`npm install`（devDependencies 自包含 typescript/vitest/@types/node）→ `npm run typecheck` → `npm test` → `npm run build` → `npm pack`
+- **消费验证**：tarball 装入 rc.1 consumer → `dsh --profile compat --dump-config` 出现本插件 row → 工具真实注册与执行通过
+- **启动方式**：`npx -p @deepseek-ai/dsh@0.0.1-rc.1 dsh web`（lib 生产模式；勿 `install -g` 全局安装）
+
+> 已知限制：npm rc.1 下 deep 模式依赖的 `@deepseek-ai/dsh-session-persistence-jsonl/src/zstd.ts` 因上游 tarball 不含 src/ 而不可用，deep 降级 `decoder-unavailable`；frame-level 扫描不受影响（已报 dsh-external/issues）。
+
+
 ## 安装
 
 ### Profile Bundle（推荐）
