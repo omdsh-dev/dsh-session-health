@@ -1,5 +1,7 @@
 # dsh-session-health
 
+[English](README.en.md)
+
 DSH 会话健康检查插件 —— 对 `$DSH_HOME/sessions` 下的**多帧 zstd 会话文件**做帧级扫描诊断（torn / 损坏 / 空会话 / stray 文件），输出健康报告与清理建议。**只读**：绝不修改或删除任何文件。
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
