@@ -6,6 +6,8 @@ DSH session health check plugin — performs frame-level scan diagnostics on **m
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+Repository: [https://github.com/omdsh-dev/dsh-session-health](https://github.com/omdsh-dev/dsh-session-health) (public)
+
 ## Motivation
 
 While investigating issue #376 on 8/7, we ran a full decode analysis over 39 session files and discovered a key fact in the process: **DSH session files are a concatenation of multiple zstd frames** (a 19MB session = 119,952 frames). Reading a multi-frame file with a single-frame decode API only reveals the header — which once caused a false "all sessions empty" judgment. This diagnostic logic deserves to be productized as a tool: the model can directly ask "is my session file healthy" instead of relying on hand-written scripts.
@@ -58,32 +60,40 @@ session_health { action: "file", path: "session-abc123", deep: true }
   → 单文件报告（含事件分布与中断检测）
 ```
 
-## npm rc.1 Compatibility (verified)
+## npm 0.1.0-rc.6 Compatibility (verified)
 
-This plugin has been migrated to the npm rc.1 dependency line, and full end-to-end verification was completed in an isolated consumer of `@deepseek-ai/dsh@0.0.1-rc.1`:
+This plugin has been migrated to the npm 0.1.0-rc.6 dependency line, and full end-to-end verification was completed in an isolated consumer of `@deepseek-ai/dsh@0.1.0-rc.6`:
 
-- **Types/runtime**: `@deepseek-ai/cordis@^4.0.1-rc.1` + `@deepseek-ai/dsh-tools@^0.0.1-rc.1` + `@deepseek-ai/dsh-invariants@^0.0.1-rc.1` (peer); no longer depends on unscoped `cordis`
+- **Types/runtime**: `@deepseek-ai/cordis@^4.0.1` + `@deepseek-ai/dsh-tools@>=0.0.1-rc.1 <0.2.0` + `@deepseek-ai/dsh-invariants@>=0.0.1-rc.1 <0.2.0` (peer); no longer depends on unscoped `cordis`
 - **Standalone build**: `npm install` (devDependencies self-contain typescript/vitest/@types/node) → `npm run typecheck` → `npm test` → `npm run build` → `npm pack`
-- **Consumption verification**: tarball loaded into an rc.1 consumer → the plugin's row appears in `dsh --profile compat --dump-config` → real tool registration and execution passed
-- **Startup method**: `npx -p @deepseek-ai/dsh@0.0.1-rc.1 dsh web` (lib production mode; do not `install -g` globally)
+- **Consumption verification**: tarball loaded into an rc.6 consumer → the plugin's row appears in `dsh --profile compat --dump-config` → real tool registration and execution passed
+- **Startup method**: `npx -p @deepseek-ai/dsh@0.1.0-rc.6 dsh web` (lib production mode; do not `install -g` globally)
 
-> Known limitation: under npm rc.1, `@deepseek-ai/dsh-session-persistence-jsonl/src/zstd.ts`, which deep mode depends on, is unavailable because the upstream tarball does not include src/; deep degrades to `decoder-unavailable`; frame-level scanning is unaffected (reported to dsh-external/issues during the beta; that tracker repo remains in the dsh-external org).
+> Known limitation: under npm 0.1.0-rc.6, the `@deepseek-ai/dsh-session-persistence-jsonl` tarball that deep mode depends on still does not include src/, and its root entry still does not export the zstd API; deep degrades to `decoder-unavailable`; frame-level scanning is unaffected (reported to dsh-external/issues — that organization is org infrastructure and remains in place).
 
 
 ## Installation
 
-### Profile Bundle (Recommended)
+Under DSH 0.1.0-rc.6 (npm), plugins are installed via `dsh plugin --profile <profile> add <source>`; source is a GitHub repository or an npm pack tarball.
 
-Install this plugin into a profile as a standalone bundle (0806+):
+### Install from GitHub (Recommended)
 
 ```sh
 # 交互式（web）profile
-dsh plugin --profile web add "C:/path/to/dsh-session-health"
+dsh plugin --profile web add github:omdsh-dev/dsh-session-health
 # 一次性任务（headless）profile —— dsh run 默认使用 headless
-dsh plugin --profile headless add "C:/path/to/dsh-session-health"
+dsh plugin --profile headless add github:omdsh-dev/dsh-session-health
 ```
 
-The bundled `dsh.bundle.patch` automatically adds the plugin to the profile's layer stack after installation (row id: `tool-session-health`). The plugin's missing peer dependencies (`cordis`, `@deepseek-ai/dsh-tools`) are provided by the profile's healed `profiles/node_modules` fallback installation.
+### Install from npm pack tarball
+
+The `npm pack` artifact can be installed directly as source:
+
+```sh
+dsh plugin --profile web add dsh-session-health-*.tgz
+```
+
+The bundled `dsh.bundle.patch` automatically adds the plugin to the profile's layer stack after installation (row id: `tool-session-health`). The plugin's missing peer dependencies (`@deepseek-ai/cordis`, `@deepseek-ai/dsh-tools`) are provided by the profile's healed `profiles/node_modules` fallback installation.
 
 > ⚠️ web and headless are **different profiles**: installing into web does not automatically cover headless; `dsh run` uses the headless profile by default. Use forward slashes for Windows paths (`C:/...`).
 
@@ -99,9 +109,13 @@ dsh --profile web --dump-config | grep tool-session-health
 dsh run "使用 session_health 工具扫描会话目录健康状态"
 ```
 
-### Manual Installation and Legacy Compatibility
+### Legacy Scenario: monorepo / Local-Path Installation
 
-Only for legacy snapshots that do not support Profile Bundle, or plugin development/debugging environments (local junction/symlink, manually editing the profile layer).
+The monorepo approach is now a legacy scenario (local junction/symlink, manually editing the profile layer, legacy snapshots without GitHub/tarball source support):
+
+```sh
+dsh plugin --profile web add "C:/path/to/dsh-session-health"
+```
 ## Testing
 
 ```bash
