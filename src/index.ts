@@ -103,10 +103,10 @@ function deepStatusOf(detail: Array<FileDiagnosis & { deepInfo?: DeepResult }>):
 async function runAction(args: SessionHealthArgs): Promise<string> {
   const dshHome = resolveDshHome()
   const root = sessionsRoot(dshHome)
-  const deepRequested = args.deep === true
-  const detailRequested = args.detail !== false
+  const deepRequested = args.action === 'stats' ? false : args.deep === true
+  const detailRequested = args.action === 'stats' ? false : args.detail !== false
 
-  if (args.action === 'scan') {
+  if (args.action === 'scan' || args.action === 'stats') {
     const { files, warnings } = await enumerateSessions(root)
     const detail: Array<FileDiagnosis & { deepInfo?: DeepResult }> = []
     for (const f of files) {
@@ -132,9 +132,9 @@ async function runAction(args: SessionHealthArgs): Promise<string> {
     return JSON.stringify(report)
   }
 
-  if (args.action === 'file' || args.action === 'stats') {
+  if (args.action === 'file') {
     if (typeof args.path !== 'string' || args.path === '') {
-      throw new Error('session_health: file/stats require a path or session id')
+      throw new Error('session_health: file requires a path or session id')
     }
     const target = await resolveSessionPath(root, args.path)
     const stat = await fs.stat(target)
@@ -151,7 +151,7 @@ async function runAction(args: SessionHealthArgs): Promise<string> {
       root, [withDeep],
       deepRequested ? deepStatusOf([withDeep]) : false,
     )
-    if (args.action === 'stats' || !detailRequested) {
+    if (!detailRequested) {
       report.detail = []
     }
     return JSON.stringify(report)
@@ -168,7 +168,8 @@ export function apply(ctx: Context): void {
       'torn writes, corruption, empty sessions, stray files). Read-only: never ' +
       'modifies or deletes any file. Actions: scan (whole directory health report), ' +
       'file (diagnose one file by absolute path inside the sessions root or by ' +
-      'session id), stats (totals only). deep=true additionally decodes events ' +
+      'session id), stats (whole-directory totals only, no path). deep=true ' +
+      'additionally decodes events ' +
       '(requires the official decoder; degrades to frame-level with deep: "unavailable" ' +
       'when it cannot resolve).',
     parameters: {
@@ -180,7 +181,7 @@ export function apply(ctx: Context): void {
       },
       path: {
         type: 'string',
-        description: 'Session file path (inside the sessions root) or session id (file action).',
+        description: 'Session file path (inside the sessions root) or session id (file action only).',
       },
       deep: {
         type: 'boolean',
