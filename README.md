@@ -60,21 +60,21 @@ session_health { action: "file", path: "session-abc123", deep: true }
   → 单文件报告（含事件分布与中断检测）
 ```
 
-## DSH 0.1.2-alpha.4 兼容（已验证）
+## DSH 0.1.2-rc.1 兼容（已验证）
 
-本插件已迁移到 DSH 0.1.2-alpha.4 依赖线，并在 `local harness 0.1.2-alpha.4` 的隔离 consumer 中完成全链路验证：
+本插件已迁移到 DSH 0.1.2-rc.1 依赖线，并在 `local harness 0.1.2-rc.1` 的隔离 consumer 中完成全链路验证：
 
 - **类型/运行时**：`@deepseek-ai/cordis@^4.0.1` + `@deepseek-ai/dsh-tools@>=0.0.1-rc.1 <0.2.0` + `@deepseek-ai/dsh-invariants@>=0.0.1-rc.1 <0.2.0`（peer）；不再依赖 unscoped `cordis`
 - **独立构建**：`npm install`（devDependencies 自包含 typescript/vitest/@types/node）→ `npm run typecheck` → `npm test` → `npm run build` → `npm pack`
 - **消费验证**：tarball 装入 rc.8 consumer → `dsh --profile compat --dump-config` 出现本插件 row → 工具真实注册与执行通过
 - **启动方式**：`npx -p @deepseek-ai/dsh@next dsh web`（lib 生产模式；勿 `install -g` 全局安装）
 
-> 已知限制：DSH 0.1.2-alpha.4 下 deep 模式依赖的 `@deepseek-ai/dsh-session-persistence-jsonl` tarball 仍不含 `src/`，根入口仍不导出 zstd API，deep 降级 `decoder-unavailable`；frame-level 扫描不受影响（已报 dsh-external/issues，该组织为组织基础设施，保留）。
+> 已知限制：DSH 0.1.2-rc.1 下 deep 模式依赖的 `@deepseek-ai/dsh-session-persistence-jsonl` tarball 仍不含 `src/`，根入口仍不导出 zstd API，deep 降级 `decoder-unavailable`；frame-level 扫描不受影响（已报 dsh-external/issues，该组织为组织基础设施，保留）。
 
 
 ## 安装
 
-DSH 0.1.2-alpha.4（npm）下，插件通过 `dsh plugin --profile <profile> add <source>` 安装，source 支持 GitHub 仓库或 npm pack tarball。
+DSH 0.1.2-rc.1（npm）下，插件通过 `dsh plugin --profile <profile> add <source>` 安装，source 支持 GitHub 仓库或 npm pack tarball。
 
 ### 从 GitHub 安装（推荐）
 
