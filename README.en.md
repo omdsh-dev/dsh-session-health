@@ -60,21 +60,21 @@ session_health { action: "file", path: "session-abc123", deep: true }
   → 单文件报告（含事件分布与中断检测）
 ```
 
-## DSH 0.1.5-alpha.1 Compatibility (verified)
+## DSH 0.1.5-rc.1 Compatibility (verified)
 
-This plugin has been migrated to the DSH 0.1.5-alpha.1 harness, and full end-to-end verification was completed in an isolated consumer of `local harness 0.1.5-alpha.1`:
+This plugin has been migrated to the DSH 0.1.5-rc.1 harness, and full end-to-end verification was completed in an isolated consumer of `local harness 0.1.5-rc.1`:
 
 - **Types/runtime**: `@deepseek-ai/cordis@^4.0.1` + `@deepseek-ai/dsh-tools@>=0.0.1-rc.1 <0.2.0` + `@deepseek-ai/dsh-invariants@>=0.0.1-rc.1 <0.2.0` (peer); no longer depends on unscoped `cordis`
 - **Standalone build**: `npm install` (devDependencies self-contain typescript/vitest/@types/node) → `npm run typecheck` → `npm test` → `npm run build` → `npm pack`
 - **Consumption verification**: tarball loaded into an rc.8 consumer → the plugin's row appears in `dsh --profile compat --dump-config` → real tool registration and execution passed
 - **Startup method**: `npx -p @deepseek-ai/dsh@next dsh web` (lib production mode; do not `install -g` globally)
 
-> Known limitation: under DSH 0.1.5-alpha.1, the `@deepseek-ai/dsh-session-persistence-jsonl` tarball that deep mode depends on still does not include src/, and its root entry still does not export the zstd API; deep degrades to `decoder-unavailable`; frame-level scanning is unaffected (reported to dsh-external/issues — that organization is org infrastructure and remains in place).
+> Known limitation: under DSH 0.1.5-rc.1, the `@deepseek-ai/dsh-session-persistence-jsonl` tarball that deep mode depends on still does not include src/, and its root entry still does not export the zstd API; deep degrades to `decoder-unavailable`; frame-level scanning is unaffected (reported to dsh-external/issues — that organization is org infrastructure and remains in place).
 
 
 ## Installation
 
-Under DSH 0.1.5-alpha.1, plugins are installed via `dsh plugin --profile <profile> add <source>`; source is a GitHub repository or an npm pack tarball.
+Under DSH 0.1.5-rc.1, plugins are installed via `dsh plugin --profile <profile> add <source>`; source is a GitHub repository or an npm pack tarball.
 
 ### Install from GitHub (Recommended)
 
